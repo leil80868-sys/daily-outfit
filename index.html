@@ -332,6 +332,12 @@ input[type=range]::-webkit-slider-thumb{
 .city-item .meta{font-size:11.5px;color:var(--muted)}
 .city-presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
 .city-presets button{font-size:12.5px;padding:7px 12px;border-radius:999px;background:#f1e9de;color:#6d6359}
+.ip-suggest{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+  padding:12px 14px;border-radius:14px;margin-bottom:12px;text-align:left;
+  background:var(--accent-soft);border:1px solid #e6c8b8;font-size:13.5px;color:#6b3f2b;
+}
+.ip-suggest .use{font-size:12px;font-weight:600;color:var(--accent-deep);flex:0 0 auto}
 
 /* toast */
 .toast{
@@ -442,6 +448,7 @@ input[type=range]::-webkit-slider-thumb{
   <button class="sheet-close" data-close aria-label="关闭">✕</button>
   <h3>选择城市</h3>
   <p class="sub">只用来查询当地天气，不会上传你的衣物信息</p>
+  <div id="ipSuggest"></div>
   <div class="search-row">
     <input type="search" id="cityInput" placeholder="输入城市名，如：杭州" autocomplete="off">
     <button class="icon-btn" id="locateBtn">📍 定位</button>
@@ -546,6 +553,7 @@ const state = {
   weatherAt: 0,
   rec: null,
   weatherError: false,
+  ipCity: null,
   locks: new Set(),
   filter: 'all',
   editing: null
@@ -1518,8 +1526,24 @@ function openCitySheet(){
   $('#cityInput').value = '';
   $('#cityResults').innerHTML = '';
   renderCityPresets();
+  renderIpSuggest();
   openSheet($('#citySheet'));
   setTimeout(() => $('#cityInput').focus(), 320);
+}
+
+function renderIpSuggest(){
+  const box = $('#ipSuggest');
+  if(!box) return;
+  const c = state.ipCity;
+  if(!c || state.settings.city){ box.innerHTML = ''; return; }
+  box.innerHTML = `<button class="ip-suggest" id="useIpCity">
+      <span>📍 网络定位：${esc(c.name)}${c.admin ? ' · ' + esc(c.admin) : ''}</span>
+      <span class="use">使用</span>
+    </button>`;
+  $('#useIpCity').onclick = () => {
+    setCity(c);
+    toast('已切换到 ' + c.name);
+  };
 }
 
 function renderCityPresets(){
@@ -1747,13 +1771,11 @@ async function init(){
   if(state.settings.city){
     loadWeather(!state.weather);
   }else{
-    // 没有城市时先把选择面板打开，同时后台按 IP 猜一个
+    // 没有城市时先把选择面板打开，IP 定位只作为建议，不自动切换
     openCitySheet();
     guessCityByIP().then(c => {
-      if(state.settings.city) return;
-      if($('#cityInput').value.trim()) return;   // 用户已经在输入，不打断
-      setCity(c, { refresh:true });
-      toast('已根据网络定位到 ' + c.name);
+      state.ipCity = c;
+      if(openSheetEl === $('#citySheet')) renderIpSuggest();
     }).catch(() => {});
   }
 
