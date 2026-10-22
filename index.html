@@ -1059,9 +1059,9 @@ function shoeTarget(t){
 function outerTargetFor(coldT){
   if(coldT >= 19) return 0;
   if(coldT >= 15) return 1;
-  if(coldT >= 10) return 2;
-  if(coldT >= 5) return 3;
-  if(coldT >= 0) return 4;
+  if(coldT >= 11) return 2;
+  if(coldT >= 7) return 3;
+  if(coldT >= 1) return 4;
   return 5;
 }
 
@@ -1127,6 +1127,7 @@ function pickBest(cat, target, chosen, w, occasion, learn){
   const rain = w.rainProb >= 50;
   const windy = w.wind >= 25;
   const hot = w.warmT >= 28;
+  const humid = w.humidity >= 80;
   let best = null, bestScore = -Infinity;
 
   for(const it of pool){
@@ -1151,6 +1152,8 @@ function pickBest(cat, target, chosen, w, occasion, learn){
     if(rain && it.tags?.includes('waterproof')) s += cat === 'outer' ? 5 : 2;
     if(windy && it.tags?.includes('windproof')) s += 2;
     if(hot && it.tags?.includes('breathable')) s += 1.5;
+    if(humid && hot && it.tags?.includes('breathable')) s += 1.2;
+    if(humid && w.coldT <= 10 && it.tags?.includes('windproof')) s += 1;
     s += Math.random() * 1.8;
 
     if(s > bestScore){ bestScore = s; best = it; }
@@ -1166,6 +1169,8 @@ function buildTips(w, look){
   if(w.warmT >= 30) tips.push('天气炎热，选轻薄透气的衣服');
   if(w.rainProb >= 50) tips.push(`降水概率 ${w.rainProb}%，记得带伞`);
   if(w.wind >= 25) tips.push('风比较大，外套选防风的');
+  if(w.humidity >= 80 && w.warmT >= 22) tips.push('湿度偏高，优先透气面料');
+  if(w.humidity >= 80 && w.coldT <= 10) tips.push('湿冷体感更明显，注意防风保暖');
   if(w.uv >= 6) tips.push(`紫外线较强（${w.uv}），注意防晒`);
   if(look && look.palette && look.palette !== '中性色') tips.push(`配色：${look.palette}`);
   if(look && look.styleLabel) tips.push(`风格：${look.styleLabel}`);
