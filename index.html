@@ -765,11 +765,54 @@ const state = {
   weatherError: false,
   ipCity: null,
   occasion: 'commute',
+  custom: { categories:[], styles:[], fits:[], patterns:[], tags:[], colors:[] },
   locks: new Set(),
   filter: 'all',
   editing: null
 };
 let form = null;
+
+function emptyCustom(){
+  return { categories:[], styles:[], fits:[], patterns:[], tags:[], colors:[] };
+}
+function loadCustom(raw){
+  const out = emptyCustom();
+  if(raw && typeof raw === 'object'){
+    for(const k of Object.keys(out)){
+      if(Array.isArray(raw[k])) out[k] = raw[k];
+    }
+  }
+  return out;
+}
+async function persistCustom(){
+  try{ await metaPut('custom', state.custom); }catch(e){ console.warn(e); }
+}
+function customOptionName(o){ return typeof o === 'string' ? o : o.name; }
+
+// 把旧单品上已经用过的自定义标签补进标签库
+function migrateCustomFromItems(){
+  let changed = false;
+  const addOpt = (type, opt) => {
+    const list = state.custom[type] || (state.custom[type] = []);
+    if(!list.some(x => customOptionName(x) === opt.name)){
+      list.push(opt);
+      changed = true;
+    }
+  };
+  for(const it of state.items){
+    if(it.categoryLabel) addOpt('categories', { name:it.categoryLabel, base:it.category || 'top', coversBottom:!!it.coversBottom });
+    if(it.styleLabel) addOpt('styles', { name:it.styleLabel, base:it.style || 'casual' });
+    if(it.fitLabel) addOpt('fits', { name:it.fitLabel, base:it.fit || 'regular' });
+    if(it.patternLabel) addOpt('patterns', { name:it.patternLabel, base:it.pattern || 'solid' });
+    for(const t of (it.tags || [])){
+      if(!TAGS.some(([k, l]) => k === t || l === t) && !state.custom.tags.some(x => customOptionName(x) === t)){
+        state.custom.tags.push(t);
+        changed = true;
+      }
+    }
+  }
+  if(changed) persistCustom();
+}
 
 /* ---------------- utils ---------------- */
 function pad(n){ return String(n).padStart(2,'0'); }
@@ -1852,15 +1895,31 @@ function openItemSheet(item){
   openSheet($('#itemSheet'));
 }
 
+function normalizeCustomList(type){
+  const defaults = { categories:'top', styles:'casual', fits:'regular', patterns:'solid' };
+  const out = [];
+  for(const raw of (state.custom[type] || [])){
+    if(typeof raw === 'string'){
+      if(raw) out.push({ name:raw, base:defaults[type] || '' });
+    }else if(raw && raw.name){
+      out.push({ ...raw, name:raw.name, base:raw.base || defaults[type] || '' });
+    }
+  }
+  return out;
+}
+
 function renderCatChips(){
-  const custom = form.categoryLabel
-    ? `<button class="chip-opt active" data-edit-custom="category">${esc(form.categoryLabel)}</button>`
-    : '';
+  const opts = normalizeCustomList('categories');
+  if(form.categoryLabel && !opts.some(o => o.name === form.categoryLabel)){
+    opts.push({ name:form.categoryLabel, base:form.category, coversBottom:!!form.coversBottom });
+  }
   $('#fCat').innerHTML = CAT_ORDER.map(c => `
     <button class="chip-opt ${form.category === c && !form.categoryLabel ? 'active' : ''}" data-cat="${c}">
       ${CATS[c].emoji} ${CATS[c].label}
-    </button>`).join('') + custom +
-    `<button class="chip-opt add-chip" data-add="category">＋ 添加</button>`;
+    </button>`).join('')
+    + opts.map(o => `
+    <button class="chip-opt ${form.categoryLabel === o.name ? 'active' : ''}" data-custom-cat="${esc(o.name)}">${esc(o.name)}</button>`).join('')
+    + `<button class="chip-opt add-chip" data-add="category">＋ 添加</button>`;
   $$('#fCat .chip-opt[data-cat]').forEach(btn => {
     btn.onclick = () => {
       form.category = btn.dataset.cat;
@@ -1870,64 +1929,110 @@ function renderCatChips(){
       $('#fName').placeholder = `例如：${CATS[form.category].label}`;
     };
   });
-  const edit = $('#fCat [data-edit-custom="category"]');
-  if(edit) edit.onclick = () => openCustom('category');
+  $$('#fCat [data-custom-cat]').forEach(btn => {
+    btn.onclick = () => {
+      const o = opts.find(x => x.name === btn.dataset.customCat);
+      if(!o) return;
+      form.category = o.base || 'top';
+      form.categoryLabel = o.name;
+      form.coversBottom = !!o.coversBottom;
+      renderCatChips();
+      $('#fName').placeholder = `例如：${o.name}`;
+    };
+  });
   $('#fCat [data-add="category"]').onclick = () => openCustom('category');
 }
 
 function renderStyleChips(){
-  const custom = form.styleLabel
-    ? `<button class="chip-opt active" data-edit-custom="style">${esc(form.styleLabel)}</button>`
-    : '';
+  const opts = normalizeCustomList('styles');
+  if(form.styleLabel && !opts.some(o => o.name === form.styleLabel)){
+    opts.push({ name:form.styleLabel, base:form.style });
+  }
   $('#fStyle').innerHTML = Object.entries(STYLES).map(([k, label]) => `
     <button class="chip-opt ${form.style === k && !form.styleLabel ? 'active' : ''}" data-style="${k}">${label}</button>`).join('')
-    + custom + `<button class="chip-opt add-chip" data-add="style">＋ 添加</button>`;
+    + opts.map(o => `
+    <button class="chip-opt ${form.styleLabel === o.name ? 'active' : ''}" data-custom-style="${esc(o.name)}">${esc(o.name)}</button>`).join('')
+    + `<button class="chip-opt add-chip" data-add="style">＋ 添加</button>`;
   $$('#fStyle .chip-opt[data-style]').forEach(btn => {
     btn.onclick = () => { form.style = btn.dataset.style; form.styleLabel = ''; renderStyleChips(); };
   });
-  const edit = $('#fStyle [data-edit-custom="style"]');
-  if(edit) edit.onclick = () => openCustom('style');
+  $$('#fStyle [data-custom-style]').forEach(btn => {
+    btn.onclick = () => {
+      const o = opts.find(x => x.name === btn.dataset.customStyle);
+      if(!o) return;
+      form.style = o.base || 'casual';
+      form.styleLabel = o.name;
+      renderStyleChips();
+    };
+  });
   $('#fStyle [data-add="style"]').onclick = () => openCustom('style');
 }
 
 function renderFitChips(){
-  const custom = form.fitLabel
-    ? `<button class="chip-opt active" data-edit-custom="fit">${esc(form.fitLabel)}</button>`
-    : '';
+  const opts = normalizeCustomList('fits');
+  if(form.fitLabel && !opts.some(o => o.name === form.fitLabel)){
+    opts.push({ name:form.fitLabel, base:form.fit });
+  }
   $('#fFit').innerHTML = Object.entries(FITS).map(([k, label]) => `
     <button class="chip-opt ${form.fit === k && !form.fitLabel ? 'active' : ''}" data-fit="${k}">${label}</button>`).join('')
-    + custom + `<button class="chip-opt add-chip" data-add="fit">＋ 添加</button>`;
+    + opts.map(o => `
+    <button class="chip-opt ${form.fitLabel === o.name ? 'active' : ''}" data-custom-fit="${esc(o.name)}">${esc(o.name)}</button>`).join('')
+    + `<button class="chip-opt add-chip" data-add="fit">＋ 添加</button>`;
   $$('#fFit .chip-opt[data-fit]').forEach(btn => {
     btn.onclick = () => { form.fit = btn.dataset.fit; form.fitLabel = ''; renderFitChips(); };
   });
-  const edit = $('#fFit [data-edit-custom="fit"]');
-  if(edit) edit.onclick = () => openCustom('fit');
+  $$('#fFit [data-custom-fit]').forEach(btn => {
+    btn.onclick = () => {
+      const o = opts.find(x => x.name === btn.dataset.customFit);
+      if(!o) return;
+      form.fit = o.base || 'regular';
+      form.fitLabel = o.name;
+      renderFitChips();
+    };
+  });
   $('#fFit [data-add="fit"]').onclick = () => openCustom('fit');
 }
 
 function renderPatternChips(){
-  const custom = form.patternLabel
-    ? `<button class="chip-opt active" data-edit-custom="pattern">${esc(form.patternLabel)}</button>`
-    : '';
+  const opts = normalizeCustomList('patterns');
+  if(form.patternLabel && !opts.some(o => o.name === form.patternLabel)){
+    opts.push({ name:form.patternLabel, base:form.pattern });
+  }
   $('#fPattern').innerHTML = Object.entries(PATTERNS).map(([k, label]) => `
     <button class="chip-opt ${form.pattern === k && !form.patternLabel ? 'active' : ''}" data-pattern="${k}">${label}</button>`).join('')
-    + custom + `<button class="chip-opt add-chip" data-add="pattern">＋ 添加</button>`;
+    + opts.map(o => `
+    <button class="chip-opt ${form.patternLabel === o.name ? 'active' : ''}" data-custom-pattern="${esc(o.name)}">${esc(o.name)}</button>`).join('')
+    + `<button class="chip-opt add-chip" data-add="pattern">＋ 添加</button>`;
   $$('#fPattern .chip-opt[data-pattern]').forEach(btn => {
     btn.onclick = () => { form.pattern = btn.dataset.pattern; form.patternLabel = ''; renderPatternChips(); };
   });
-  const edit = $('#fPattern [data-edit-custom="pattern"]');
-  if(edit) edit.onclick = () => openCustom('pattern');
+  $$('#fPattern [data-custom-pattern]').forEach(btn => {
+    btn.onclick = () => {
+      const o = opts.find(x => x.name === btn.dataset.customPattern);
+      if(!o) return;
+      form.pattern = o.base || 'solid';
+      form.patternLabel = o.name;
+      renderPatternChips();
+    };
+  });
   $('#fPattern [data-add="pattern"]').onclick = () => openCustom('pattern');
 }
 
 function renderTagChips(){
   const knownKeys = TAGS.map(([k]) => k);
   const knownLabels = TAGS.map(([, l]) => l);
-  const customTags = form.tags.filter(t => !knownKeys.includes(t) && !knownLabels.includes(t));
+  const names = [];
+  for(const t of (state.custom.tags || [])){
+    const name = customOptionName(t);
+    if(name && !knownKeys.includes(name) && !knownLabels.includes(name) && !names.includes(name)) names.push(name);
+  }
+  for(const t of form.tags){
+    if(!knownKeys.includes(t) && !knownLabels.includes(t) && !names.includes(t)) names.push(t);
+  }
   $('#fTags').innerHTML = TAGS.map(([key,label]) => `
     <button class="chip-opt ${form.tags.includes(key) ? 'active' : ''}" data-tag="${key}">${label}</button>`).join('')
-    + customTags.map(t => `
-    <button class="chip-opt active" data-remove-tag="${esc(t)}">${esc(t)} ×</button>`).join('')
+    + names.map(t => `
+    <button class="chip-opt ${form.tags.includes(t) ? 'active' : ''}" data-custom-tag="${esc(t)}">${esc(t)}</button>`).join('')
     + `<button class="chip-opt add-chip" data-add="tag">＋ 添加</button>`;
   $$('#fTags .chip-opt[data-tag]').forEach(btn => {
     btn.onclick = () => {
@@ -1937,9 +2042,11 @@ function renderTagChips(){
       renderTagChips();
     };
   });
-  $$('#fTags [data-remove-tag]').forEach(btn => {
+  $$('#fTags [data-custom-tag]').forEach(btn => {
     btn.onclick = () => {
-      form.tags = form.tags.filter(t => t !== btn.dataset.removeTag);
+      const name = btn.dataset.customTag;
+      if(form.tags.includes(name)) form.tags = form.tags.filter(t => t !== name);
+      else form.tags.push(name);
       renderTagChips();
     };
   });
@@ -2040,6 +2147,12 @@ function addCustom(){
   if(type === 'color'){
     const hex = normalizeHex($('#customHex').value) || form.hex;
     const cname = name || colorName(hex);
+    const colors = state.custom.colors || (state.custom.colors = []);
+    const idx = colors.findIndex(c => String(c.hex || '').toLowerCase() === hex.toLowerCase());
+    const opt = { name:cname, hex };
+    if(idx >= 0) colors[idx] = opt; else colors.unshift(opt);
+    if(colors.length > 16) colors.length = 16;
+    persistCustom();
     setFormColor(hex, cname);
     renderSwatches();
     closeCustom();
@@ -2049,28 +2162,43 @@ function addCustom(){
   if(!name){ toast('先输入名称'); return; }
 
   if(type === 'category'){
+    const coversBottom = customCtx.base === 'top' && $('#customCovers').checked;
     form.category = customCtx.base || form.category;
     form.categoryLabel = name;
-    form.coversBottom = form.category === 'top' && $('#customCovers').checked;
+    form.coversBottom = coversBottom;
+    upsertCustom('categories', { name, base:form.category, coversBottom });
     renderCatChips();
     $('#fName').placeholder = `例如：${name}`;
   }else if(type === 'style'){
     form.style = customCtx.base || 'casual';
     form.styleLabel = name;
+    upsertCustom('styles', { name, base:form.style });
     renderStyleChips();
   }else if(type === 'fit'){
     form.fit = customCtx.base || 'regular';
     form.fitLabel = name;
+    upsertCustom('fits', { name, base:form.fit });
     renderFitChips();
   }else if(type === 'pattern'){
     form.pattern = customCtx.base || 'solid';
     form.patternLabel = name;
+    upsertCustom('patterns', { name, base:form.pattern });
     renderPatternChips();
   }else if(type === 'tag'){
     if(!form.tags.includes(name)) form.tags.push(name);
+    if(!(state.custom.tags || []).some(t => customOptionName(t) === name)) state.custom.tags.push(name);
+    persistCustom();
     renderTagChips();
   }
   closeCustom();
+}
+
+function upsertCustom(type, option){
+  const list = state.custom[type] || (state.custom[type] = []);
+  const idx = list.findIndex(x => customOptionName(x) === option.name);
+  if(idx >= 0) list[idx] = option;
+  else list.push(option);
+  persistCustom();
 }
 
 function syncCustomColorName(hex){
@@ -2108,13 +2236,19 @@ function bindCustom(){
 }
 
 function renderSwatches(){
-  $('#swatches').innerHTML = PRESET_COLORS.map(([hex]) => `
-    <button data-hex="${hex}" class="${hex.toLowerCase() === form.hex.toLowerCase() ? 'sel' : ''}"
-      style="background:${hex}" aria-label="${colorName(hex)}"></button>`).join('');
+  const list = PRESET_COLORS.map(([hex, name]) => [hex, name || colorName(hex)]);
+  for(const c of (state.custom.colors || [])){
+    const hex = normalizeHex(c.hex);
+    if(!hex) continue;
+    list.push([hex, c.name || colorName(hex)]);
+  }
+  $('#swatches').innerHTML = list.map(([hex, name]) => `
+    <button data-hex="${hex}" data-name="${esc(name)}" class="${hex.toLowerCase() === form.hex.toLowerCase() ? 'sel' : ''}"
+      style="background:${hex}" aria-label="${esc(name)}"></button>`).join('');
   $$('#swatches button').forEach(btn => {
     btn.onclick = () => {
-      form.colorName = colorName(btn.dataset.hex);
-      setFormColor(btn.dataset.hex, form.colorName);
+      const name = btn.dataset.name || colorName(btn.dataset.hex);
+      setFormColor(btn.dataset.hex, name);
       renderSwatches();
     };
   });
@@ -2468,6 +2602,7 @@ function exportData(){
     version: 1,
     exportedAt: new Date().toISOString(),
     settings: state.settings,
+    custom: state.custom,
     items: state.items,
     logs: state.logs
   };
@@ -2497,6 +2632,10 @@ async function onImportFile(e){
       await metaPut('settings', state.settings);
       localStorage.setItem('outfit.city', JSON.stringify(data.settings.city));
     }
+    if(data.custom){
+      state.custom = loadCustom(data.custom);
+      await metaPut('custom', state.custom);
+    }
     state.items = await dbAll('items');
     state.logs = await dbAll('logs');
     state.rec = null;
@@ -2523,7 +2662,7 @@ async function clearAll(){
   }
   localStorage.removeItem('outfit.city');
   localStorage.removeItem('outfit.weather');
-  state.items = []; state.logs = []; state.settings = { city:null };
+  state.items = []; state.logs = []; state.settings = { city:null }; state.custom = emptyCustom();
   state.weather = null; state.rec = null; state.locks.clear();
   updateCityBtn();
   renderAll();
@@ -2602,6 +2741,9 @@ async function init(){
     state.logs = await dbAll('logs');
     const saved = await metaGet('settings');
     if(saved && saved.city) state.settings = saved;
+    const savedCustom = await metaGet('custom');
+    state.custom = loadCustom(savedCustom);
+    migrateCustomFromItems();
   }catch(e){ console.warn(e); }
 
   if(!state.settings.city){
