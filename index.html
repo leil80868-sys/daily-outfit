@@ -445,6 +445,28 @@ input[type=range]::-webkit-slider-thumb{
   background:#fffdf9;font-size:14px;letter-spacing:.05em;outline:none;
 }
 .hex-input:focus{border-color:#d4b6a3;box-shadow:0 0 0 3px rgba(177,90,60,.08)}
+.hsv-square{
+  position:relative;height:150px;border-radius:12px;overflow:hidden;margin-top:4px;
+  background:
+    linear-gradient(to top, #000, rgba(0,0,0,0)),
+    linear-gradient(to right, #fff, hsl(var(--hue, 0), 100%, 50%));
+  border:1px solid rgba(0,0,0,.08);touch-action:none;cursor:crosshair;
+}
+.hsv-dot{
+  position:absolute;width:18px;height:18px;border-radius:50%;
+  border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.25);
+  transform:translate(-50%,-50%);pointer-events:none;left:100%;top:0%;
+}
+input[type=range].hue-slider{
+  -webkit-appearance:none;appearance:none;width:100%;height:14px;border-radius:999px;
+  background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
+  margin:14px 0 0;outline:none;
+}
+input[type=range].hue-slider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:hsl(var(--hue, 0),100%,50%);
+  border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.25),0 2px 6px rgba(0,0,0,.2);
+}
 
 /* toast */
 .toast{
@@ -621,11 +643,13 @@ input[type=range]::-webkit-slider-thumb{
   </div>
   <div class="field hidden" id="customColorField">
     <span class="label">颜色值</span>
-    <div class="color-row">
+    <div class="hsv-square" id="hsvSquare"><span class="hsv-dot" id="hsvDot"></span></div>
+    <input type="range" class="hue-slider" id="hsvHue" min="0" max="360" step="1" value="0" aria-label="色相">
+    <div class="color-hint">拖动方块选饱和度和明度，拖色条换色相；也可以直接输入 HEX。</div>
+    <div class="color-row" style="margin-top:10px">
       <button class="swatch" id="customSwatch" style="background:#c9a97a"></button>
       <input type="text" class="hex-input" id="customHex" maxlength="7" placeholder="#AABBCC" autocomplete="off">
     </div>
-    <div class="color-hint">点左边色块可以打开系统调色盘，也可以直接输入 HEX。</div>
     <input type="color" id="customColorInput" class="sr-only" value="#c9a97a" tabindex="-1">
   </div>
   <div class="sheet-actions">
@@ -2156,6 +2180,104 @@ function normalizeHex(v){
   return /^#[0-9a-f]{6}$/i.test(s) ? s.toLowerCase() : null;
 }
 
+/* ---------------- 调色盘 ---------------- */
+let hsvState = { h:0, s:0, v:0 };
+
+function rgbToHsv(r, g, b){
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if(d){
+    if(max === r) h = ((g - b) / d) % 6;
+    else if(max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if(h < 0) h += 360;
+  }
+  return { h, s: max ? d / max : 0, v: max };
+}
+function hsvToRgb(h, s, v){
+  h = ((h % 360) + 360) % 360;
+  const c = v * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = v - c;
+  let r = 0, g = 0, b = 0;
+  if(h < 60){ r = c; g = x; }
+  else if(h < 120){ r = x; g = c; }
+  else if(h < 180){ g = c; b = x; }
+  else if(h < 240){ g = x; b = c; }
+  else if(h < 300){ r = x; b = c; }
+  else { r = c; b = x; }
+  return { r: (r + m) * 255, g: (g + m) * 255, b: (b + m) * 255 };
+}
+function hsvToHex(h, s, v){
+  const c = hsvToRgb(h, s, v);
+  return rgbToHex(c.r, c.g, c.b);
+}
+function hexToHsv(hex){
+  const c = hexToRgb(hex);
+  return rgbToHsv(c.r, c.g, c.b);
+}
+function positionHsvDot(){
+  const dot = $('#hsvDot');
+  if(!dot) return;
+  dot.style.left = (hsvState.s * 100) + '%';
+  dot.style.top = ((1 - hsvState.v) * 100) + '%';
+}
+function setHsvFromHex(hex){
+  const c = hexToHsv(hex);
+  hsvState = { h: c.h, s: c.s, v: c.v };
+  $('#hsvHue').value = Math.round(c.h);
+  $('#hsvHue').style.setProperty('--hue', c.h);
+  $('#hsvSquare').style.setProperty('--hue', c.h);
+  positionHsvDot();
+}
+function initHsvPicker(hex){
+  setHsvFromHex(hex);
+}
+function applyHsv(syncName = true){
+  const hex = hsvToHex(hsvState.h, hsvState.s, hsvState.v);
+  $('#hsvSquare').style.setProperty('--hue', hsvState.h);
+  $('#hsvHue').style.setProperty('--hue', hsvState.h);
+  positionHsvDot();
+  $('#customHex').value = hex.toUpperCase();
+  $('#customSwatch').style.background = hex;
+  $('#customColorInput').value = hex;
+  if(syncName) syncCustomColorName(hex);
+}
+function bindHsvPicker(){
+  const sq = $('#hsvSquare');
+  let dragging = false;
+  const update = e => {
+    const r = sq.getBoundingClientRect();
+    if(!r.width || !r.height) return;
+    hsvState.s = clamp((e.clientX - r.left) / r.width, 0, 1);
+    hsvState.v = 1 - clamp((e.clientY - r.top) / r.height, 0, 1);
+    applyHsv();
+  };
+  sq.addEventListener('pointerdown', e => {
+    dragging = true;
+    try{ sq.setPointerCapture(e.pointerId); }catch(err){}
+    update(e);
+    e.preventDefault();
+  });
+  sq.addEventListener('pointermove', e => {
+    if(!dragging) return;
+    update(e);
+    e.preventDefault();
+  });
+  const end = e => {
+    dragging = false;
+    try{ sq.releasePointerCapture(e.pointerId); }catch(err){}
+  };
+  sq.addEventListener('pointerup', end);
+  sq.addEventListener('pointercancel', end);
+  $('#hsvHue').addEventListener('input', e => {
+    hsvState.h = +e.target.value;
+    applyHsv();
+  });
+}
+
 function openCustom(type){
   if(!form) return;
   const cfg = {
@@ -2191,6 +2313,7 @@ function openCustom(type){
     $('#customHex').value = form.hex.toUpperCase();
     $('#customSwatch').style.background = form.hex;
     $('#customColorInput').value = form.hex;
+    initHsvPicker(form.hex);
   }
 
   renderCustomBase();
@@ -2309,6 +2432,7 @@ function bindCustom(){
     const hex = e.target.value;
     $('#customHex').value = hex.toUpperCase();
     $('#customSwatch').style.background = hex;
+    setHsvFromHex(hex);
     syncCustomColorName(hex);
   });
   $('#customHex').addEventListener('input', e => {
@@ -2316,9 +2440,11 @@ function bindCustom(){
     if(hex){
       $('#customSwatch').style.background = hex;
       $('#customColorInput').value = hex;
+      setHsvFromHex(hex);
       syncCustomColorName(hex);
     }
   });
+  bindHsvPicker();
   $('#customName').addEventListener('keydown', e => {
     if(e.key === 'Enter'){ e.preventDefault(); addCustom(); }
   });

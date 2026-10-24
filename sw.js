@@ -1,5 +1,5 @@
 /* 今天穿什么 — 离线缓存 */
-const CACHE = 'outfit-v6';
+const CACHE = 'outfit-v7';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
