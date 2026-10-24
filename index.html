@@ -113,11 +113,16 @@ main{max-width:560px;margin:0 auto;padding:2px 16px 28px}
 .outfit-card{padding:16px 14px 14px}
 .outfit-row{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .outfit-row::-webkit-scrollbar{display:none}
-.outfit-item{flex:1 0 70px;min-width:70px;max-width:110px;text-align:center;position:relative}
+.outfit-item{flex:1 0 62px;min-width:62px;max-width:110px;text-align:center;position:relative}
 .outfit-item .ph{
-  aspect-ratio:3/4;border-radius:14px;overflow:hidden;background:#f0e8db;
+  position:relative;aspect-ratio:3/4;border-radius:14px;overflow:hidden;background:#f0e8db;
   display:flex;align-items:center;justify-content:center;font-size:26px;
   border:1px solid rgba(0,0,0,.03);
+}
+.mid-badge{
+  position:absolute;left:6px;bottom:6px;z-index:2;
+  font-size:9.5px;padding:2px 7px;border-radius:999px;
+  background:rgba(36,33,29,.62);color:#fff;pointer-events:none;letter-spacing:.04em;
 }
 .outfit-item .ph img{width:100%;height:100%;object-fit:cover}
 .outfit-item .oname{font-size:11px;color:var(--muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -547,6 +552,7 @@ input[type=range]::-webkit-slider-thumb{
   <div class="field">
     <span class="label">标签（可选）</span>
     <div class="chips" id="fTags"></div>
+    <div class="color-hint" id="tagHint"></div>
   </div>
 
   <label class="field">
@@ -638,12 +644,13 @@ input[type=range]::-webkit-slider-thumb{
 
 const CATS = {
   top:    { label:'上衣', emoji:'👕', warmth:3 },
+  mid:    { label:'中间层', emoji:'🦺', warmth:2 },
   bottom: { label:'下装', emoji:'👖', warmth:3 },
   outer:  { label:'外套', emoji:'🧥', warmth:3 },
   shoes:  { label:'鞋子', emoji:'👟', warmth:2 },
   acc:    { label:'配饰', emoji:'🧣', warmth:2 }
 };
-const CAT_ORDER = ['top','bottom','outer','shoes','acc'];
+const CAT_ORDER = ['top','mid','bottom','outer','shoes','acc'];
 const WARM_LABELS = ['','很薄','偏薄','适中','偏厚','厚实'];
 const WARM_WORDS = ['','轻薄','偏薄','适中','偏厚','厚实'];
 const NEUTRAL = new Set(['黑色','白色','灰色','深灰','浅灰','米白','米色','卡其色','棕色','藏蓝色','牛仔蓝']);
@@ -921,13 +928,75 @@ function harmonyScore(item, others){
 function inferStyle(it){
   if(!it) return 'casual';
   if(it.style && STYLES[it.style]) return it.style;
-  if(it.tags?.includes('sport')) return 'sport';
-  if(it.tags?.includes('formal')) return 'commute';
+  if(itemHasRuleTag(it, 'sport')) return 'sport';
+  if(itemHasRuleTag(it, 'formal')) return 'commute';
   return 'casual';
 }
 function itemStyle(it){ return inferStyle(it); }
 function itemFit(it){ return (it && it.fit) || 'regular'; }
 function itemPattern(it){ return (it && it.pattern) || 'solid'; }
+
+function customTagRole(name){
+  const opt = (state.custom.tags || []).find(t => customOptionName(t) === name);
+  return opt && typeof opt === 'object' ? (opt.role || 'normal') : 'normal';
+}
+function itemHasRuleTag(it, key){
+  if(!it) return false;
+  if((it.tags || []).includes(key)) return true;
+  return (it.tags || []).some(t => customTagRole(t) === key);
+}
+function isMidItem(it){
+  if(!it) return false;
+  if(it.category === 'mid') return true;
+  return (it.tags || []).some(t => customTagRole(t) === 'mid');
+}
+function midCandidates(){
+  return state.items.filter(isMidItem);
+}
+function poolFor(cat){
+  if(cat === 'mid') return midCandidates();
+  return state.items.filter(i => i.category === cat && !isMidItem(i));
+}
+function midSeason(w, targets){
+  if(!midCandidates().length) return false;
+  if(w.warmT >= 26) return false;
+  if(w.coldT < 4) return false;
+  if(targets.outer >= 4) return false;
+  return true;
+}
+
+const MID_OCCASION = { commute:1.2, casual:0.9, date:0.6, sport:-0.6 };
+function midAesthetic(it, chosen, occasion, learn){
+  const arr = Object.values(chosen).filter(Boolean);
+  let s = 0;
+  s += harmonyScore(it, arr) * 1.25;
+  s += styleCoherence(it, chosen, occasion) * 1.25;
+  s += paletteStrength([...arr, it]) * 1.1;
+  s += fitBalance(it, chosen) * 0.7;
+  s += patternBalance(it, chosen) * 1.0;
+  s += learnedAffinity(it, chosen, learn) * 0.8;
+  s += MID_OCCASION[occasion] || 0;
+  return s;
+}
+function pickMid(target, chosen, w, occasion, learn){
+  let pool = midCandidates();
+  if(!pool.length) return null;
+  const dists = pool.map(i => Math.abs((i.warmth || 2) - target));
+  const minD = Math.min(...dists);
+  const maxD = minD <= 1 ? 1 : minD;
+  pool = pool.filter(i => Math.abs((i.warmth || 2) - target) <= maxD);
+  let best = null, bestScore = -Infinity;
+  for(const it of pool){
+    let s = midAesthetic(it, chosen, occasion, learn);
+    const d = Math.abs((it.warmth || 2) - target);
+    s += d === 0 ? 1.5 : d === 1 ? 0.5 : -2;
+    if(w.rainProb >= 50 && itemHasRuleTag(it, 'waterproof')) s += 1;
+    if(w.wind >= 25 && itemHasRuleTag(it, 'windproof')) s += 1;
+    s += Math.random() * 1.2;
+    if(s > bestScore){ bestScore = s; best = it; }
+  }
+  return best ? { item:best, score: midAesthetic(best, chosen, occasion, learn) } : null;
+}
 function itemCatLabel(it){ return (it && it.categoryLabel) || CATS[it.category]?.label || '单品'; }
 function itemStyleLabel(it){ return (it && it.styleLabel) || STYLES[itemStyle(it)] || '休闲'; }
 function itemFitLabel(it){ return (it && it.fitLabel) || FITS[itemFit(it)] || '合身'; }
@@ -1312,6 +1381,7 @@ function buildOutfit(lockIds = new Set()){
   const coldT = w.coldT, warmT = w.warmT;
   const targets = {
     top: topTarget(warmT),
+    mid: Math.max(1, topTarget(warmT) - 1),
     bottom: bottomTarget(coldT + 3),
     outer: outerTargetFor(coldT),
     shoes: shoeTarget(Math.round((coldT + warmT) / 2)),
@@ -1323,15 +1393,21 @@ function buildOutfit(lockIds = new Set()){
   const chosen = {};
   for(const id of lockIds){
     const it = state.items.find(x => x.id === id);
-    if(it) chosen[it.category] = it;
+    if(it) chosen[isMidItem(it) ? 'mid' : it.category] = it;
   }
   if(chosen.top && chosen.top.coversBottom) delete chosen.bottom;
 
-  const order = ['top','bottom','outer','shoes','acc'];
+  const order = ['top','bottom','mid','outer','shoes','acc'];
   for(const cat of order){
     if(chosen[cat]) continue;
     if(cat === 'bottom' && chosen.top && chosen.top.coversBottom) continue;
     if(cat === 'outer' && !needOuter) continue;
+    if(cat === 'mid'){
+      if(!midSeason(w, targets)) continue;
+      const pick = pickMid(targets.mid, chosen, w, occasion, learn);
+      if(pick && pick.score >= 9) chosen.mid = pick.item;
+      continue;
+    }
     if(cat === 'acc'){
       const pool = state.items.filter(i => i.category === 'acc');
       if(!pool.length) continue;
@@ -1355,7 +1431,7 @@ function buildOutfit(lockIds = new Set()){
 }
 
 function pickBest(cat, target, chosen, w, occasion, learn){
-  let pool = state.items.filter(i => i.category === cat);
+  let pool = poolFor(cat);
   if(!pool.length) return null;
 
   // 先按保暖度圈定可接受的单品，审美再在范围内挑选
@@ -1389,11 +1465,11 @@ function pickBest(cat, target, chosen, w, occasion, learn){
       else if(dd <= 3) s -= 2.5;
       else if(dd <= 7) s -= 1;
     }
-    if(rain && it.tags?.includes('waterproof')) s += cat === 'outer' ? 5 : 2;
-    if(windy && it.tags?.includes('windproof')) s += 2;
-    if(hot && it.tags?.includes('breathable')) s += 1.5;
-    if(humid && hot && it.tags?.includes('breathable')) s += 1.2;
-    if(humid && w.coldT <= 10 && it.tags?.includes('windproof')) s += 1;
+    if(rain && itemHasRuleTag(it, 'waterproof')) s += cat === 'outer' ? 5 : 2;
+    if(windy && itemHasRuleTag(it, 'windproof')) s += 2;
+    if(hot && itemHasRuleTag(it, 'breathable')) s += 1.5;
+    if(humid && hot && itemHasRuleTag(it, 'breathable')) s += 1.2;
+    if(humid && w.coldT <= 10 && itemHasRuleTag(it, 'windproof')) s += 1;
     s += Math.random() * 1.8;
 
     if(s > bestScore){ bestScore = s; best = it; }
@@ -1426,7 +1502,8 @@ function outfitSentence(w, chosen, targets, occasion, palette){
   if(!parts.length) return `今天体感 ${w.coldT}–${w.warmT}℃，${w.desc}。`;
   const occ = OCCASIONS[occasion] || '通勤';
   const pal = palette && palette !== '中性色' ? `，配色走${palette}` : '';
-  return `今天体感 ${w.coldT}–${w.warmT}℃，${w.desc}。按${occ}场合${pal}，穿${parts.join(' + ')}刚好。`;
+  const mid = chosen.mid ? `，叠穿一件${chosen.mid.name || itemCatLabel(chosen.mid)}` : '';
+  return `今天体感 ${w.coldT}–${w.warmT}℃，${w.desc}。按${occ}场合${pal}${mid}，穿${parts.join(' + ')}刚好。`;
 }
 
 function occasionKey(){ return 'outfit.occasion.' + localDate(); }
@@ -1536,6 +1613,7 @@ function recHTML(w){
     <div class="outfit-item ${state.locks.has(it.id) ? 'locked' : ''}" data-id="${it.id}">
       <div class="ph">
         ${it.photo ? `<img src="${it.photo}" alt="">` : `<span>${CATS[it.category].emoji}</span>`}
+        ${isMidItem(it) ? '<span class="mid-badge">叠穿</span>' : ''}
         <button class="edit-badge" data-edit="${it.id}" aria-label="编辑标签">✎</button>
         <span class="lock">🔒</span>
       </div>
@@ -1686,7 +1764,7 @@ function renderWardrobe(){
 
 function itemCard(it){
   return `<button class="item-card" data-id="${it.id}">
-      <div class="item-ph">${it.photo ? `<img src="${it.photo}" alt="" loading="lazy">` : `<span>${CATS[it.category].emoji}</span>`}<span class="item-edit">✎</span></div>
+      <div class="item-ph">${it.photo ? `<img src="${it.photo}" alt="" loading="lazy">` : `<span>${CATS[it.category].emoji}</span>`}${isMidItem(it) ? '<span class="mid-badge">叠穿</span>' : ''}<span class="item-edit">✎</span></div>
       <div class="item-meta">
         <div class="item-name">${esc(it.name)}</div>
         <div class="item-sub"><span class="dot" style="background:${it.hex || '#ccc'}"></span>${esc(it.colorName || '')} · ${WARM_LABELS[it.warmth || 3]} · ${esc(itemStyleLabel(it))}</div>
@@ -1941,6 +2019,7 @@ function renderCatChips(){
     };
   });
   $('#fCat [data-add="category"]').onclick = () => openCustom('category');
+  updateTagHint();
 }
 
 function renderStyleChips(){
@@ -2051,6 +2130,20 @@ function renderTagChips(){
     };
   });
   $('#fTags [data-add="tag"]').onclick = () => openCustom('tag');
+  updateTagHint();
+}
+
+function updateTagHint(){
+  const hint = $('#tagHint');
+  if(!hint) return;
+  if(form && form.category === 'mid'){
+    hint.textContent = '中间层会作为叠穿件参与推荐，是否出现由温度和风格决定。';
+    return;
+  }
+  const midTag = form ? form.tags.find(t => customTagRole(t) === 'mid') : null;
+  hint.textContent = midTag
+    ? `「${midTag}」会作为中间层，在合适的温度和风格下参与叠穿推荐。`
+    : '';
 }
 
 /* ---------------- 自定义标签 ---------------- */
@@ -2070,7 +2163,7 @@ function openCustom(type){
     style:    { title:'自定义风格', sub:'名称会显示在衣橱里，推荐时按最接近的风格计算', name:'风格名称', ph:'例如：法式', baseLabel:'最接近的风格', bases:Object.entries(STYLES), base:form.style },
     fit:      { title:'自定义版型', sub:'名称会显示在衣橱里，推荐时按最接近的版型计算', name:'版型名称', ph:'例如：Oversize', baseLabel:'最接近的版型', bases:Object.entries(FITS), base:form.fit },
     pattern:  { title:'自定义图案', sub:'名称会显示在衣橱里，推荐时按最接近的图案计算', name:'图案名称', ph:'例如：波点', baseLabel:'最接近的图案', bases:Object.entries(PATTERNS), base:form.pattern },
-    tag:      { title:'自定义标签', sub:'例如：可机洗、易皱、需要干洗', name:'标签名称', ph:'例如：可机洗' },
+    tag:      { title:'自定义标签', sub:'选一个搭配作用：选「中间层」后，会作为背心/马甲参与叠穿推荐', name:'标签名称', ph:'例如：背心', baseLabel:'搭配作用', bases:[['normal','普通标签'],['mid','中间层（背心/马甲）'],['waterproof','防水'],['windproof','防风'],['breathable','透气'],['formal','正式'],['sport','运动']], base:'normal' },
     color:    { title:'自定义颜色', sub:'输入颜色名称，再选一个颜色值', name:'颜色名称', ph:'例如：雾霾紫' }
   }[type];
   if(!cfg) return;
@@ -2186,8 +2279,7 @@ function addCustom(){
     renderPatternChips();
   }else if(type === 'tag'){
     if(!form.tags.includes(name)) form.tags.push(name);
-    if(!(state.custom.tags || []).some(t => customOptionName(t) === name)) state.custom.tags.push(name);
-    persistCustom();
+    upsertCustom('tags', { name, role: customCtx.base || 'normal' });
     renderTagChips();
   }
   closeCustom();
@@ -2229,6 +2321,19 @@ function bindCustom(){
   });
   $('#customName').addEventListener('keydown', e => {
     if(e.key === 'Enter'){ e.preventDefault(); addCustom(); }
+  });
+  // 输入背心/马甲/开衫时，自动建议归入中间层
+  $('#customName').addEventListener('input', e => {
+    if(!customCtx) return;
+    if(!/背心|马甲|开衫|坎肩/.test(e.target.value.trim())) return;
+    if(customCtx.type === 'tag' && customCtx.base === 'normal'){
+      customCtx.base = 'mid';
+      renderCustomBase();
+    }else if(customCtx.type === 'category' && (customCtx.base === 'top' || !customCtx.base)){
+      customCtx.base = 'mid';
+      renderCustomBase();
+      updateCoversVisibility();
+    }
   });
   $('#customHex').addEventListener('keydown', e => {
     if(e.key === 'Enter'){ e.preventDefault(); addCustom(); }
