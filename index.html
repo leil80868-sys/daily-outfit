@@ -340,9 +340,11 @@ input[type=range]::-webkit-slider-thumb{
 .swatch-presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .swatch-presets button{width:26px;height:26px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
 .swatch-presets button.sel{outline:2px solid var(--ink);outline-offset:2px}
-.color-tools{display:flex;gap:8px;margin-top:10px}
+.color-tools{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .color-tools .text-btn{border:1px solid #ecd9cc;background:var(--accent-soft);color:var(--accent-deep)}
 .color-hint{font-size:11px;color:#a59a8e;line-height:1.55;margin-top:8px}
+.chip-opt.add-chip{background:transparent;border-style:dashed;color:#a08a78}
+.chip-opt.add-chip:active{background:#f3ece2}
 .sheet-actions{display:flex;gap:10px;margin-top:22px}
 .sheet-actions .btn{flex:1}
 
@@ -410,6 +412,34 @@ input[type=range]::-webkit-slider-thumb{
 .picker-color{font-size:15px;font-weight:650}
 .picker-hex{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;letter-spacing:.07em}
 .picker-bottom .tip{margin-left:auto;font-size:10.5px;color:rgba(255,255,255,.38);text-align:right;max-width:150px;line-height:1.5}
+
+/* ---------- 自定义标签弹窗 ---------- */
+.modal-backdrop{
+  position:fixed;inset:0;z-index:80;background:rgba(32,25,19,.45);
+  opacity:0;pointer-events:none;transition:opacity .2s ease;
+}
+.modal-backdrop.show{opacity:1;pointer-events:auto}
+.modal{
+  position:fixed;left:50%;top:50%;z-index:81;
+  width:min(92vw,380px);max-height:86vh;overflow-y:auto;
+  transform:translate(-50%,-46%) scale(.97);
+  background:var(--bg);border-radius:22px;padding:20px;
+  box-shadow:0 24px 70px rgba(30,20,12,.28);
+  opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;
+}
+.modal.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
+.modal h3{font-size:18px;font-weight:650;margin-bottom:4px}
+.modal .sub{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.55}
+.modal .field{margin-bottom:14px}
+.modal .field:last-of-type{margin-bottom:0}
+.modal .sheet-actions{margin-top:18px}
+.check-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#6d6359;margin-top:10px;line-height:1.4}
+.check-row input{width:18px;height:18px;accent-color:var(--accent);flex:0 0 auto}
+.hex-input{
+  flex:1;min-width:0;padding:11px 13px;border-radius:12px;border:1px solid var(--line);
+  background:#fffdf9;font-size:14px;letter-spacing:.05em;outline:none;
+}
+.hex-input:focus{border-color:#d4b6a3;box-shadow:0 0 0 3px rgba(177,90,60,.08)}
 
 /* toast */
 .toast{
@@ -507,6 +537,7 @@ input[type=range]::-webkit-slider-thumb{
     <div class="color-tools">
       <button class="text-btn" id="pickColor">🎯 照片取色</button>
       <button class="text-btn" id="reExtract">重新识别</button>
+      <button class="text-btn" id="customColorBtn">＋ 自定义</button>
     </div>
     <div class="swatch-presets" id="swatches"></div>
     <div class="color-hint">自动识别不准时，点「照片取色」，直接在照片上点想要的颜色。</div>
@@ -563,6 +594,37 @@ input[type=range]::-webkit-slider-thumb{
       <div class="picker-hex" id="pickerHex">—</div>
     </div>
     <div class="tip">取衣服上最有代表性的颜色，避开阴影和高光</div>
+  </div>
+</section>
+
+<div class="modal-backdrop" id="customBackdrop"></div>
+<section class="modal" id="customModal">
+  <h3 id="customTitle">自定义</h3>
+  <p class="sub" id="customSub">输入名称，再选一个归入的位置</p>
+  <label class="field">
+    <span class="label" id="customNameLabel">名称</span>
+    <input type="text" id="customName" maxlength="12" placeholder="例如：连衣裙">
+  </label>
+  <div class="field hidden" id="customBaseField">
+    <span class="label" id="customBaseLabel">归入推荐位置</span>
+    <div class="chips" id="customBaseChips"></div>
+    <label class="check-row hidden" id="customCoversRow">
+      <input type="checkbox" id="customCovers">
+      <span>这件已包含下装（连衣裙、连体裤）</span>
+    </label>
+  </div>
+  <div class="field hidden" id="customColorField">
+    <span class="label">颜色值</span>
+    <div class="color-row">
+      <button class="swatch" id="customSwatch" style="background:#c9a97a"></button>
+      <input type="text" class="hex-input" id="customHex" maxlength="7" placeholder="#AABBCC" autocomplete="off">
+    </div>
+    <div class="color-hint">点左边色块可以打开系统调色盘，也可以直接输入 HEX。</div>
+    <input type="color" id="customColorInput" class="sr-only" value="#c9a97a" tabindex="-1">
+  </div>
+  <div class="sheet-actions">
+    <button class="btn ghost" id="customCancel">取消</button>
+    <button class="btn primary" id="customAdd">添加</button>
   </div>
 </section>
 
@@ -823,6 +885,10 @@ function inferStyle(it){
 function itemStyle(it){ return inferStyle(it); }
 function itemFit(it){ return (it && it.fit) || 'regular'; }
 function itemPattern(it){ return (it && it.pattern) || 'solid'; }
+function itemCatLabel(it){ return (it && it.categoryLabel) || CATS[it.category]?.label || '单品'; }
+function itemStyleLabel(it){ return (it && it.styleLabel) || STYLES[itemStyle(it)] || '休闲'; }
+function itemFitLabel(it){ return (it && it.fitLabel) || FITS[itemFit(it)] || '合身'; }
+function itemPatternLabel(it){ return (it && it.patternLabel) || PATTERNS[itemPattern(it)] || '纯色'; }
 
 // 一套穿搭最贴近的 2026 流行配色
 function bestPalette(items){
@@ -832,7 +898,7 @@ function bestPalette(items){
   for(const p of TREND_PALETTES){
     let core = 0, anchor = 0;
     for(const it of list){
-      const n = it.colorName || colorName(it.hex);
+      const n = it.hex ? colorName(it.hex) : it.colorName;
       if(p.core.includes(n)) core++;
       else if(p.anchors.includes(n)) anchor++;
     }
@@ -1216,10 +1282,12 @@ function buildOutfit(lockIds = new Set()){
     const it = state.items.find(x => x.id === id);
     if(it) chosen[it.category] = it;
   }
+  if(chosen.top && chosen.top.coversBottom) delete chosen.bottom;
 
   const order = ['top','bottom','outer','shoes','acc'];
   for(const cat of order){
     if(chosen[cat]) continue;
+    if(cat === 'bottom' && chosen.top && chosen.top.coversBottom) continue;
     if(cat === 'outer' && !needOuter) continue;
     if(cat === 'acc'){
       const pool = state.items.filter(i => i.category === 'acc');
@@ -1578,7 +1646,7 @@ function itemCard(it){
       <div class="item-ph">${it.photo ? `<img src="${it.photo}" alt="" loading="lazy">` : `<span>${CATS[it.category].emoji}</span>`}<span class="item-edit">✎</span></div>
       <div class="item-meta">
         <div class="item-name">${esc(it.name)}</div>
-        <div class="item-sub"><span class="dot" style="background:${it.hex || '#ccc'}"></span>${esc(it.colorName || '')} · ${WARM_LABELS[it.warmth || 3]} · ${STYLES[itemStyle(it)]}</div>
+        <div class="item-sub"><span class="dot" style="background:${it.hex || '#ccc'}"></span>${esc(it.colorName || '')} · ${WARM_LABELS[it.warmth || 3]} · ${esc(itemStyleLabel(it))}</div>
       </div>
     </button>`;
 }
@@ -1752,10 +1820,15 @@ function openItemSheet(item){
     hex: item?.hex || '#c9a97a',
     colorName: item?.colorName || colorName(item?.hex || '#c9a97a'),
     category: cat,
+    categoryLabel: item?.categoryLabel || '',
+    coversBottom: !!item?.coversBottom,
     warmth: item?.warmth || CATS[cat].warmth,
     style: item?.style || inferStyle(item),
+    styleLabel: item?.styleLabel || '',
     fit: item?.fit || 'regular',
+    fitLabel: item?.fitLabel || '',
     pattern: item?.pattern || 'solid',
+    patternLabel: item?.patternLabel || '',
     tags: item?.tags ? [...item.tags] : [],
     nameTouched: !!item
   };
@@ -1780,53 +1853,257 @@ function openItemSheet(item){
 }
 
 function renderCatChips(){
+  const custom = form.categoryLabel
+    ? `<button class="chip-opt active" data-edit-custom="category">${esc(form.categoryLabel)}</button>`
+    : '';
   $('#fCat').innerHTML = CAT_ORDER.map(c => `
-    <button class="chip-opt ${form.category === c ? 'active' : ''}" data-cat="${c}">
+    <button class="chip-opt ${form.category === c && !form.categoryLabel ? 'active' : ''}" data-cat="${c}">
       ${CATS[c].emoji} ${CATS[c].label}
-    </button>`).join('');
-  $$('#fCat .chip-opt').forEach(btn => {
+    </button>`).join('') + custom +
+    `<button class="chip-opt add-chip" data-add="category">＋ 添加</button>`;
+  $$('#fCat .chip-opt[data-cat]').forEach(btn => {
     btn.onclick = () => {
       form.category = btn.dataset.cat;
+      form.categoryLabel = '';
+      form.coversBottom = false;
       renderCatChips();
       $('#fName').placeholder = `例如：${CATS[form.category].label}`;
     };
   });
+  const edit = $('#fCat [data-edit-custom="category"]');
+  if(edit) edit.onclick = () => openCustom('category');
+  $('#fCat [data-add="category"]').onclick = () => openCustom('category');
 }
 
 function renderStyleChips(){
+  const custom = form.styleLabel
+    ? `<button class="chip-opt active" data-edit-custom="style">${esc(form.styleLabel)}</button>`
+    : '';
   $('#fStyle').innerHTML = Object.entries(STYLES).map(([k, label]) => `
-    <button class="chip-opt ${form.style === k ? 'active' : ''}" data-style="${k}">${label}</button>`).join('');
-  $$('#fStyle .chip-opt').forEach(btn => {
-    btn.onclick = () => { form.style = btn.dataset.style; renderStyleChips(); };
+    <button class="chip-opt ${form.style === k && !form.styleLabel ? 'active' : ''}" data-style="${k}">${label}</button>`).join('')
+    + custom + `<button class="chip-opt add-chip" data-add="style">＋ 添加</button>`;
+  $$('#fStyle .chip-opt[data-style]').forEach(btn => {
+    btn.onclick = () => { form.style = btn.dataset.style; form.styleLabel = ''; renderStyleChips(); };
   });
+  const edit = $('#fStyle [data-edit-custom="style"]');
+  if(edit) edit.onclick = () => openCustom('style');
+  $('#fStyle [data-add="style"]').onclick = () => openCustom('style');
 }
 
 function renderFitChips(){
+  const custom = form.fitLabel
+    ? `<button class="chip-opt active" data-edit-custom="fit">${esc(form.fitLabel)}</button>`
+    : '';
   $('#fFit').innerHTML = Object.entries(FITS).map(([k, label]) => `
-    <button class="chip-opt ${form.fit === k ? 'active' : ''}" data-fit="${k}">${label}</button>`).join('');
-  $$('#fFit .chip-opt').forEach(btn => {
-    btn.onclick = () => { form.fit = btn.dataset.fit; renderFitChips(); };
+    <button class="chip-opt ${form.fit === k && !form.fitLabel ? 'active' : ''}" data-fit="${k}">${label}</button>`).join('')
+    + custom + `<button class="chip-opt add-chip" data-add="fit">＋ 添加</button>`;
+  $$('#fFit .chip-opt[data-fit]').forEach(btn => {
+    btn.onclick = () => { form.fit = btn.dataset.fit; form.fitLabel = ''; renderFitChips(); };
   });
+  const edit = $('#fFit [data-edit-custom="fit"]');
+  if(edit) edit.onclick = () => openCustom('fit');
+  $('#fFit [data-add="fit"]').onclick = () => openCustom('fit');
 }
 
 function renderPatternChips(){
+  const custom = form.patternLabel
+    ? `<button class="chip-opt active" data-edit-custom="pattern">${esc(form.patternLabel)}</button>`
+    : '';
   $('#fPattern').innerHTML = Object.entries(PATTERNS).map(([k, label]) => `
-    <button class="chip-opt ${form.pattern === k ? 'active' : ''}" data-pattern="${k}">${label}</button>`).join('');
-  $$('#fPattern .chip-opt').forEach(btn => {
-    btn.onclick = () => { form.pattern = btn.dataset.pattern; renderPatternChips(); };
+    <button class="chip-opt ${form.pattern === k && !form.patternLabel ? 'active' : ''}" data-pattern="${k}">${label}</button>`).join('')
+    + custom + `<button class="chip-opt add-chip" data-add="pattern">＋ 添加</button>`;
+  $$('#fPattern .chip-opt[data-pattern]').forEach(btn => {
+    btn.onclick = () => { form.pattern = btn.dataset.pattern; form.patternLabel = ''; renderPatternChips(); };
   });
+  const edit = $('#fPattern [data-edit-custom="pattern"]');
+  if(edit) edit.onclick = () => openCustom('pattern');
+  $('#fPattern [data-add="pattern"]').onclick = () => openCustom('pattern');
 }
 
 function renderTagChips(){
+  const knownKeys = TAGS.map(([k]) => k);
+  const knownLabels = TAGS.map(([, l]) => l);
+  const customTags = form.tags.filter(t => !knownKeys.includes(t) && !knownLabels.includes(t));
   $('#fTags').innerHTML = TAGS.map(([key,label]) => `
-    <button class="chip-opt ${form.tags.includes(key) ? 'active' : ''}" data-tag="${key}">${label}</button>`).join('');
-  $$('#fTags .chip-opt').forEach(btn => {
+    <button class="chip-opt ${form.tags.includes(key) ? 'active' : ''}" data-tag="${key}">${label}</button>`).join('')
+    + customTags.map(t => `
+    <button class="chip-opt active" data-remove-tag="${esc(t)}">${esc(t)} ×</button>`).join('')
+    + `<button class="chip-opt add-chip" data-add="tag">＋ 添加</button>`;
+  $$('#fTags .chip-opt[data-tag]').forEach(btn => {
     btn.onclick = () => {
       const key = btn.dataset.tag;
       if(form.tags.includes(key)) form.tags = form.tags.filter(t => t !== key);
       else form.tags.push(key);
       renderTagChips();
     };
+  });
+  $$('#fTags [data-remove-tag]').forEach(btn => {
+    btn.onclick = () => {
+      form.tags = form.tags.filter(t => t !== btn.dataset.removeTag);
+      renderTagChips();
+    };
+  });
+  $('#fTags [data-add="tag"]').onclick = () => openCustom('tag');
+}
+
+/* ---------------- 自定义标签 ---------------- */
+let customCtx = null;
+
+function normalizeHex(v){
+  let s = String(v || '').trim();
+  if(!s.startsWith('#')) s = '#' + s;
+  if(/^#[0-9a-f]{3}$/i.test(s)) s = '#' + s.slice(1).split('').map(c => c + c).join('');
+  return /^#[0-9a-f]{6}$/i.test(s) ? s.toLowerCase() : null;
+}
+
+function openCustom(type){
+  if(!form) return;
+  const cfg = {
+    category: { title:'自定义种类', sub:'取个你习惯的叫法，再选择它归入哪个推荐位置', name:'种类名称', ph:'例如：连衣裙', baseLabel:'归入推荐位置', bases:CAT_ORDER.map(c => [c, CATS[c].label]), base:form.category },
+    style:    { title:'自定义风格', sub:'名称会显示在衣橱里，推荐时按最接近的风格计算', name:'风格名称', ph:'例如：法式', baseLabel:'最接近的风格', bases:Object.entries(STYLES), base:form.style },
+    fit:      { title:'自定义版型', sub:'名称会显示在衣橱里，推荐时按最接近的版型计算', name:'版型名称', ph:'例如：Oversize', baseLabel:'最接近的版型', bases:Object.entries(FITS), base:form.fit },
+    pattern:  { title:'自定义图案', sub:'名称会显示在衣橱里，推荐时按最接近的图案计算', name:'图案名称', ph:'例如：波点', baseLabel:'最接近的图案', bases:Object.entries(PATTERNS), base:form.pattern },
+    tag:      { title:'自定义标签', sub:'例如：可机洗、易皱、需要干洗', name:'标签名称', ph:'例如：可机洗' },
+    color:    { title:'自定义颜色', sub:'输入颜色名称，再选一个颜色值', name:'颜色名称', ph:'例如：雾霾紫' }
+  }[type];
+  if(!cfg) return;
+
+  customCtx = { type, base: cfg.base || null, bases: cfg.bases || null };
+  $('#customTitle').textContent = cfg.title;
+  $('#customSub').textContent = cfg.sub;
+  $('#customNameLabel').textContent = cfg.name;
+  $('#customName').placeholder = cfg.ph;
+  $('#customName').value = type === 'category' ? (form.categoryLabel || '')
+    : type === 'style' ? (form.styleLabel || '')
+    : type === 'fit' ? (form.fitLabel || '')
+    : type === 'pattern' ? (form.patternLabel || '')
+    : type === 'color' ? (form.colorName || '')
+    : '';
+
+  const hasBase = !!cfg.bases;
+  $('#customBaseField').classList.toggle('hidden', !hasBase);
+  $('#customBaseLabel').textContent = cfg.baseLabel || '';
+  $('#customCoversRow').classList.add('hidden');
+
+  const isColor = type === 'color';
+  $('#customColorField').classList.toggle('hidden', !isColor);
+  if(isColor){
+    $('#customHex').value = form.hex.toUpperCase();
+    $('#customSwatch').style.background = form.hex;
+    $('#customColorInput').value = form.hex;
+  }
+
+  renderCustomBase();
+  if(type === 'category'){
+    $('#customCoversRow').classList.remove('hidden');
+    $('#customCovers').checked = !!form.coversBottom;
+    updateCoversVisibility();
+  }
+
+  $('#customModal').classList.add('show');
+  $('#customBackdrop').classList.add('show');
+  setTimeout(() => $('#customName').focus(), 260);
+}
+
+function renderCustomBase(){
+  const box = $('#customBaseChips');
+  if(!customCtx || !customCtx.bases){ box.innerHTML = ''; return; }
+  box.innerHTML = customCtx.bases.map(([k, label]) => `
+    <button class="chip-opt ${customCtx.base === k ? 'active' : ''}" data-base="${k}">${label}</button>`).join('');
+  $$('#customBaseChips .chip-opt').forEach(btn => {
+    btn.onclick = () => {
+      customCtx.base = btn.dataset.base;
+      renderCustomBase();
+      updateCoversVisibility();
+    };
+  });
+}
+
+function updateCoversVisibility(){
+  const row = $('#customCoversRow');
+  if(!row) return;
+  const show = customCtx && customCtx.type === 'category' && customCtx.base === 'top';
+  row.classList.toggle('hidden', !show);
+}
+
+function closeCustom(){
+  customCtx = null;
+  $('#customModal').classList.remove('show');
+  $('#customBackdrop').classList.remove('show');
+}
+
+function addCustom(){
+  if(!customCtx || !form) return;
+  const name = $('#customName').value.trim();
+  const type = customCtx.type;
+
+  if(type === 'color'){
+    const hex = normalizeHex($('#customHex').value) || form.hex;
+    const cname = name || colorName(hex);
+    setFormColor(hex, cname);
+    renderSwatches();
+    closeCustom();
+    toast('已设为「' + cname + '」');
+    return;
+  }
+  if(!name){ toast('先输入名称'); return; }
+
+  if(type === 'category'){
+    form.category = customCtx.base || form.category;
+    form.categoryLabel = name;
+    form.coversBottom = form.category === 'top' && $('#customCovers').checked;
+    renderCatChips();
+    $('#fName').placeholder = `例如：${name}`;
+  }else if(type === 'style'){
+    form.style = customCtx.base || 'casual';
+    form.styleLabel = name;
+    renderStyleChips();
+  }else if(type === 'fit'){
+    form.fit = customCtx.base || 'regular';
+    form.fitLabel = name;
+    renderFitChips();
+  }else if(type === 'pattern'){
+    form.pattern = customCtx.base || 'solid';
+    form.patternLabel = name;
+    renderPatternChips();
+  }else if(type === 'tag'){
+    if(!form.tags.includes(name)) form.tags.push(name);
+    renderTagChips();
+  }
+  closeCustom();
+}
+
+function syncCustomColorName(hex){
+  const el = $('#customName');
+  const current = el.value.trim();
+  if(!current || current === colorName(form.hex)) el.value = colorName(hex);
+}
+
+function bindCustom(){
+  $('#customCancel').onclick = closeCustom;
+  $('#customBackdrop').onclick = closeCustom;
+  $('#customAdd').onclick = addCustom;
+  $('#customColorBtn').onclick = () => openCustom('color');
+  $('#customSwatch').onclick = () => $('#customColorInput').click();
+  $('#customColorInput').addEventListener('input', e => {
+    const hex = e.target.value;
+    $('#customHex').value = hex.toUpperCase();
+    $('#customSwatch').style.background = hex;
+    syncCustomColorName(hex);
+  });
+  $('#customHex').addEventListener('input', e => {
+    const hex = normalizeHex(e.target.value);
+    if(hex){
+      $('#customSwatch').style.background = hex;
+      $('#customColorInput').value = hex;
+      syncCustomColorName(hex);
+    }
+  });
+  $('#customName').addEventListener('keydown', e => {
+    if(e.key === 'Enter'){ e.preventDefault(); addCustom(); }
+  });
+  $('#customHex').addEventListener('keydown', e => {
+    if(e.key === 'Enter'){ e.preventDefault(); addCustom(); }
   });
 }
 
@@ -2040,13 +2317,18 @@ async function saveItem(){
   const item = Object.assign(base, {
     name,
     category: form.category,
+    categoryLabel: form.categoryLabel || '',
+    coversBottom: !!form.coversBottom,
     warmth: +$('#fWarm').value,
     hex: form.hex,
     colorName: form.colorName,
     photo: form.photo,
     style: form.style,
+    styleLabel: form.styleLabel || '',
     fit: form.fit,
+    fitLabel: form.fitLabel || '',
     pattern: form.pattern,
+    patternLabel: form.patternLabel || '',
     tags: [...form.tags],
     note: $('#fNote').value.trim()
   });
@@ -2285,6 +2567,7 @@ function bindStatic(){
   $('#pickerCancel').onclick = closeColorPicker;
   $('#pickerUse').onclick = usePickedColor;
   bindPicker();
+  bindCustom();
   $('#reExtract').onclick = async () => {
     if(!form.photo){ toast('先添加一张照片'); return; }
     toast('正在识别…');
